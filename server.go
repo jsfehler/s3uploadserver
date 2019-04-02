@@ -46,6 +46,8 @@ func uploadToS3(fileName string, content *bytes.Buffer) (string, error) {
 // If a file path looks like it has directories, create them
 // Returns the path that was created, and the file that was in the path
 func getDirectoryPathFromFilePath(filepath string) (string, string) {
+	directoryPath := ""
+
 	// Split the file path into paths
 	fnSlice := strings.Split(filepath, "/")
 	fnSliceLen := len(fnSlice)
@@ -55,14 +57,13 @@ func getDirectoryPathFromFilePath(filepath string) (string, string) {
 		dirSlice := fnSlice[:fnSliceLen-1]
 
 		// Build a path containing only the directories
-		directoryPath := strings.Join(dirSlice, "/")
-
-		// Get the name of the file
-		fileName := strings.Split(fnSlice[fnSliceLen-1:][0], ".")[0]
-
-		return directoryPath, fileName
+		directoryPath = strings.Join(dirSlice, "/")
 	}
-	return "", filepath
+
+	// Get the name of the file
+	fileName := strings.Split(fnSlice[fnSliceLen-1:][0], ".")[0]
+
+	return directoryPath, fileName
 }
 
 // Send a response back
@@ -113,6 +114,7 @@ func handleRequest(responseWriter http.ResponseWriter, request *http.Request) {
 
 		var metadata = Metadata{}
 		var metadataContent *bytes.Buffer
+		var fileContent *bytes.Buffer
 
 		// Parse through each part of the request
 		for {
@@ -126,7 +128,6 @@ func handleRequest(responseWriter http.ResponseWriter, request *http.Request) {
 				buf.ReadFrom(part)
 
 				// Each request could have a part with metadata in JSON format
-				// If the part is the metadata, store it and upload the file content first
 				if part.FormName() == "metadata" {
 					metadataContent = buf
 
@@ -148,47 +149,48 @@ func handleRequest(responseWriter http.ResponseWriter, request *http.Request) {
 						return
 					}
 
+					fileContent = buf
+
 					// Create the directory structure
 					directoryPath, fileLabel = getDirectoryPathFromFilePath(fileName)
-
-					// Add filename to a list of filenames (This will be returned in the response body.)
-					filenames = append(filenames, fileName)
-
-					// Send the content to an S3 bucket
-					_, err = uploadToS3(fileName, buf)
-					if err != nil {
-						sendResponse(
-							responseWriter,
-							http.StatusUnprocessableEntity,
-							fmt.Sprintln(err),
-						)
-						return
-					}
 				}
-
 			}
 		}
 
-		// Handle the metadata.log file
+		// Handle the _metadata.log file location
 		// If the directory path isn't blank, add it to the metadata path
 		metadataPath := directoryPath
 		if metadataPath != "" {
 			metadataPath = directoryPath + "/"
 		}
 
-		// Create a corrected path and name for the metadata
+		// Create a corrected path and name for the files
 		metadataFullPath := metadataPath + fileLabel + "_metadata.log"
+		fileFullPath := fileName
 
-		// If S3Root was provided, add as a prefix to path
+		// If S3Root was provided in the metadata, add as a prefix to path
 		if metadata.S3Root != "" {
 			metadataFullPath = metadata.S3Root + "/" + metadataFullPath
+			fileFullPath = metadata.S3Root + "/" + fileName
 		}
 
-		// Add metadata files to filenames
+		// Add file paths to a list of filenames. (This will be returned in the response body.)
 		filenames = append(filenames, metadataFullPath)
+		filenames = append(filenames, fileFullPath)
 
 		// Send the metadata to an S3 bucket
 		_, err = uploadToS3(metadataFullPath, metadataContent)
+		if err != nil {
+			sendResponse(
+				responseWriter,
+				http.StatusUnprocessableEntity,
+				fmt.Sprintln(err),
+			)
+			return
+		}
+
+		// Send the file content to an S3 bucket
+		_, err = uploadToS3(fileFullPath, fileContent)
 		if err != nil {
 			sendResponse(
 				responseWriter,

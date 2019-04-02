@@ -11,9 +11,17 @@ POST: Will upload multipart form-data to Amazon S3. Returns a list of files that
 
 Expects a filename, which is used for the upload.
 
+### Metadata
+
 If a form called "metadata" is included, that data will be uploaded as a separate file named with the filename plus _metadata.log, located next to the uploaded file.
 
 eg: `images/myfile.png` and `images/myfile_metadata.log`
+
+#### S3Root parameter
+
+If the metadata contains a parameter called `S3Root` with a string, then this will be added as a prefix to the upload location.
+
+eg: If the file path is `images/myfile.png` and S3Root is `001` then the file will be uploaded to `001/images/myfile.png`
 
 ### Running via Docker
 
